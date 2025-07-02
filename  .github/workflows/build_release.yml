@@ -1,0 +1,69 @@
+# .github/workflows/build_release.yml
+name: Build & Publish DLLs
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install system deps
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            gcc-multilib g++-multilib \
+            gcc-mingw-w64-i686 g++-mingw-w64-i686 \
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 \
+            liblua5.1-0-dev \
+            pkg-config \
+            musl-dev
+
+      - name: Setup Rust (nightly + targets)
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          components: rust-src
+          targets: |
+            i686-unknown-linux-gnu
+            x86_64-unknown-linux-gnu
+            i686-pc-windows-gnu
+            x86_64-pc-windows-gnu
+
+      - name: Build Linux 32-bits
+        run: cargo build --release --target i686-unknown-linux-gnu
+
+      - name: Build Linux 64-bits
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Build Windows 32-bits
+        run: cargo build --release --target i686-pc-windows-gnu
+
+      - name: Build Windows 64-bits
+        run: cargo build --release --target x86_64-pc-windows-gnu
+
+      - name: Collect & rename artifacts
+        run: |
+          mkdir artifacts
+          cp target/i686-unknown-linux-gnu/release/libgmod_integration_loader.so  artifacts/gmsv_gmod_integration_loader_linux.dll
+          cp target/i686-unknown-linux-gnu/release/libgmod_integration.so         artifacts/gmod_integration_linux.dll
+          cp target/x86_64-unknown-linux-gnu/release/libgmod_integration_loader.so artifacts/gmsv_gmod_integration_loader_linux64.dll
+          cp target/x86_64-unknown-linux-gnu/release/libgmod_integration.so        artifacts/gmod_integration_linux64.dll
+          cp target/i686-pc-windows-gnu/release/gmod_integration_loader.dll        artifacts/gmsv_gmod_integration_loader_win32.dll
+          cp target/i686-pc-windows-gnu/release/gmod_integration.dll               artifacts/gmod_integration_win32.dll
+          cp target/x86_64-pc-windows-gnu/release/gmod_integration_loader.dll      artifacts/gmsv_gmod_integration_loader_win64.dll
+          cp target/x86_64-pc-windows-gnu/release/gmod_integration.dll             artifacts/gmod_integration_win64.dll
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
