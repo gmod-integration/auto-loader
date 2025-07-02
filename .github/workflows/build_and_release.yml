@@ -83,10 +83,10 @@ jobs:
                       **Timestamp:** ${{ steps.tag.outputs.tag }}
 
                       ### Included DLLs:
-                      - `gmod_integration_linux.dll` - Linux 32-bit
-                      - `gmod_integration_linux64.dll` - Linux 64-bit  
-                      - `gmod_integration_win32.dll` - Windows 32-bit
-                      - `gmod_integration_win64.dll` - Windows 64-bit
+                      - `gmsv_gmod_integration_linux.dll` - Linux 32-bit
+                      - `gmsv_gmod_integration_linux64.dll` - Linux 64-bit  
+                      - `gmsv_gmod_integration_win32.dll` - Windows 32-bit
+                      - `gmsv_gmod_integration_win64.dll` - Windows 64-bit
                       - `gmsv_gmod_integration_loader_linux.dll` - Linux 32-bit Loader
                       - `gmsv_gmod_integration_loader_linux64.dll` - Linux 64-bit Loader
                       - `gmsv_gmod_integration_loader_win32.dll` - Windows 32-bit Loader  

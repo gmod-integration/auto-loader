@@ -80,7 +80,7 @@ fn download_asset(client: &Client, asset: &Asset) -> Result<(), Box<dyn std::err
 fn delegate_to_real_loader(lua: State) -> i32 {
 	unsafe {
 		let suffix = get_platform_suffix();
-		let lib_name = format!("{}/gmod_integration_{}.dll", DEST_DIR, suffix);
+		let lib_name = format!("{}/gmsv_gmod_integration_{}.dll", DEST_DIR, suffix);
 
 		let lib = libloading::Library::new(&lib_name)
 			.unwrap_or_else(|_| panic!("Cannot load real integration: {}", lib_name));
@@ -133,7 +133,7 @@ fn gmod13_open(lua: State) -> i32 {
 
 	// Determine the correct asset names for the current platform
 	let suffix = get_platform_suffix();
-	let target_asset = format!("gmod_integration_{}.dll", suffix);
+	let target_asset = format!("gmsv_gmod_integration_{}.dll", suffix);
 	
 	for asset in &release.assets {
 		if asset.name == target_asset {
@@ -157,7 +157,7 @@ fn gmod13_open(lua: State) -> i32 {
 fn gmod13_close(lua: State) -> i32 {
 	unsafe {
 		let suffix = get_platform_suffix();
-		let lib_name = format!("{}/gmod_integration_{}.dll", DEST_DIR, suffix);
+		let lib_name = format!("{}/gmsv_gmod_integration_{}.dll", DEST_DIR, suffix);
 
 		let lib = libloading::Library::new(&lib_name)
 			.unwrap_or_else(|_| panic!("Cannot load real integration: {}", lib_name));

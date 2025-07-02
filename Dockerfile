@@ -37,24 +37,24 @@ FROM scratch AS artifacts
 COPY --from=builder /build/target/i686-unknown-linux-gnu/release/libgmod_integration_loader.so \
                      /out/gmsv_gmod_integration_loader_linux.dll
 COPY --from=builder /build/target/i686-unknown-linux-gnu/release/libgmod_integration.so \
-                     /out/gmod_integration_linux.dll
+                     /out/gmsv_gmod_integration_linux.dll
 
 # Linux 64-bits
 COPY --from=builder /build/target/x86_64-unknown-linux-gnu/release/libgmod_integration_loader.so \
                      /out/gmsv_gmod_integration_loader_linux64.dll
 COPY --from=builder /build/target/x86_64-unknown-linux-gnu/release/libgmod_integration.so \
-                     /out/gmod_integration_linux64.dll
+                     /out/gmsv_gmod_integration_linux64.dll
 
 # Windows 32-bits
 COPY --from=builder /build/target/i686-pc-windows-gnu/release/gmod_integration_loader.dll \
                      /out/gmsv_gmod_integration_loader_win32.dll
 COPY --from=builder /build/target/i686-pc-windows-gnu/release/gmod_integration.dll \
-                     /out/gmod_integration_win32.dll
+                     /out/gmsv_gmod_integration_win32.dll
 
 # Windows 64-bits
 COPY --from=builder /build/target/x86_64-pc-windows-gnu/release/gmod_integration_loader.dll \
                      /out/gmsv_gmod_integration_loader_win64.dll
 COPY --from=builder /build/target/x86_64-pc-windows-gnu/release/gmod_integration.dll \
-                     /out/gmod_integration_win64.dll
+                     /out/gmsv_gmod_integration_win64.dll
 
 CMD ["true"]
