@@ -3,15 +3,21 @@ use serde::Deserialize;
 use std::{fs, io::copy, path::{Path, PathBuf}};
 use reqwest::blocking::Client;
 use zip::ZipArchive;
+use chrono::Local;
 
 #[derive(Deserialize, Debug)]
 struct Release {
 	zipball_url: String,
 }
 
+fn print_log(msg: &str) {
+	let time = Local::now().format("%Y-%m-%d %H:%M:%S");
+	println!(" | {} | Gmod Integration | Auto Updater: {}", time, msg);
+}
+
 #[gmod13_open]
 fn gmod13_open(_lua: State) -> i32 {
-	println!("[Gmod Integration - Auto Update] Checking latest release...");
+	print_log("Starting auto-updater...");
 
 	let client = Client::new();
 
@@ -22,7 +28,7 @@ fn gmod13_open(_lua: State) -> i32 {
 	{
 		Ok(r) => r,
 		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
+			print_log(&format!("Failed to fetch release info: {:?}", e));
 			return 1;
 		}
 	};
@@ -30,12 +36,12 @@ fn gmod13_open(_lua: State) -> i32 {
 	let release: Release = match res.json() {
 		Ok(r) => r,
 		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
+			print_log(&format!("Failed to parse release data: {:?}", e));
 			return 1;
 		}
 	};
 
-	println!("[Gmod Integration - Auto Update] Downloading latest version...");
+	print_log("Downloading latest version...");
 
 	let response = match client
 		.get(&release.zipball_url)
@@ -44,7 +50,7 @@ fn gmod13_open(_lua: State) -> i32 {
 	{
 		Ok(r) => r,
 		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
+			print_log(&format!("Failed to download release: {:?}", e));
 			return 1;
 		}
 	};
@@ -52,7 +58,7 @@ fn gmod13_open(_lua: State) -> i32 {
 	let bytes = match response.bytes() {
 		Ok(b) => b,
 		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
+			print_log(&format!("Failed to read download data: {:?}", e));
 			return 1;
 		}
 	};
@@ -60,16 +66,16 @@ fn gmod13_open(_lua: State) -> i32 {
 	let zip_path = Path::new("gmod-integration.zip");
 
 	if let Err(e) = fs::write(&zip_path, &bytes) {
-		println!("[Gmod Integration - Auto Update] Error: {:?}", e);
+		print_log(&format!("Failed to save zip file: {:?}", e));
 		return 1;
 	}
 
-	println!("[Gmod Integration - Auto Update] Extracting files...");
+	print_log("Extracting files...");
 
 	let file = match fs::File::open(&zip_path) {
 		Ok(f) => f,
 		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
+			print_log(&format!("Failed to open zip file: {:?}", e));
 			return 1;
 		}
 	};
@@ -77,7 +83,7 @@ fn gmod13_open(_lua: State) -> i32 {
 	let mut archive = match ZipArchive::new(file) {
 		Ok(a) => a,
 		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
+			print_log(&format!("Failed to read zip archive: {:?}", e));
 			return 1;
 		}
 	};
@@ -89,7 +95,7 @@ fn gmod13_open(_lua: State) -> i32 {
 	}
 
 	if let Err(e) = fs::create_dir_all(&target_dir) {
-		println!("[Gmod Integration - Auto Update] Error: {:?}", e);
+		print_log(&format!("Failed to create installation directory: {:?}", e));
 		return 1;
 	}
 
@@ -108,7 +114,7 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	}
 
-	println!("[Gmod Integration - Auto Update] Installing update...");
+	print_log("Installing update...");
 
 	let extracted_root = match fs::read_dir(&target_dir)
 		.expect("Failed to read target dir")
@@ -116,11 +122,12 @@ fn gmod13_open(_lua: State) -> i32 {
 	{
 		Some(Ok(entry)) => entry.path(),
 		_ => {
-			println!("[Gmod Integration - Auto Update] Error: No extracted folder found");
+			print_log("Error: No extracted folder found");
 			return 1;
 		}
 	};
 
+	// Move files from the GitHub-generated folder to the target directory
 	for entry in fs::read_dir(&extracted_root).expect("Failed to read extracted content") {
 		let entry = entry.expect("Failed to read entry");
 		let from = entry.path();
@@ -134,8 +141,7 @@ fn gmod13_open(_lua: State) -> i32 {
 	let _ = fs::remove_dir_all(target_dir.join(".github"));
 	let _ = fs::remove_file(&zip_path);
 
-
-	println!("[Gmod Integration - Auto Update] Executing gmod-integration.lua...");
+	print_log("Update completed successfully!");
 
 	0
 }

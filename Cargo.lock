@@ -416,6 +416,7 @@ dependencies = [
 name = "gmod-integration"
 version = "0.5.0"
 dependencies = [
+ "chrono",
  "gmod",
  "reqwest",
  "serde",
