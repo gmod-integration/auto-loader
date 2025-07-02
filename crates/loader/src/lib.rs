@@ -2,7 +2,7 @@ use chrono::Local;
 use gmod::{lua::State, gmod13_close, gmod13_open};
 use libloading;
 use reqwest::blocking::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
 	fs,
 	io::copy,
@@ -13,6 +13,7 @@ use std::{
 #[derive(Deserialize)]
 struct Release {
 	assets: Vec<Asset>,
+	tag_name: String,
 }
 
 #[derive(Deserialize)]
@@ -21,13 +22,40 @@ struct Asset {
 	browser_download_url: String,
 }
 
+#[derive(Deserialize, Serialize, Default)]
+struct LoaderVersionCache {
+	loader_version: Option<String>,
+}
+
 const API_LATEST: &str =
 	"https://api.github.com/repos/gmod-integration/auto-loader/releases/latest";
 const DEST_DIR: &str = "garrysmod/lua/bin";
+const LOADER_VERSION_FILE: &str = "garrysmod/lua/bin/loader_version.json";
 
 fn print_log(msg: &str) {
 	let time = Local::now().format("%Y-%m-%d %H:%M:%S");
 	println!(" | {} | Gmod Integration | Auto Loader: {}", time, msg);
+}
+
+fn load_loader_version_cache() -> LoaderVersionCache {
+	fs::read_to_string(LOADER_VERSION_FILE)
+		.ok()
+		.and_then(|content| serde_json::from_str(&content).ok())
+		.unwrap_or_default()
+}
+
+fn save_loader_version_cache(cache: &LoaderVersionCache) {
+	if let Ok(content) = serde_json::to_string_pretty(cache) {
+		let _ = fs::write(LOADER_VERSION_FILE, content);
+	}
+}
+
+fn get_platform_suffix() -> &'static str {
+	if cfg!(target_os = "windows") {
+		if cfg!(target_arch = "x86_64") { "win64" } else { "win32" }
+	} else {
+		if cfg!(target_arch = "x86_64") { "linux64" } else { "linux" }
+	}
 }
 
 fn download_asset(client: &Client, asset: &Asset) -> Result<(), Box<dyn std::error::Error>> {
@@ -49,9 +77,32 @@ fn download_asset(client: &Client, asset: &Asset) -> Result<(), Box<dyn std::err
 	Ok(())
 }
 
+fn delegate_to_real_loader(lua: State) -> i32 {
+	unsafe {
+		let suffix = get_platform_suffix();
+		let lib_name = format!("{}/gmod_integration_{}.dll", DEST_DIR, suffix);
+
+		let lib = libloading::Library::new(&lib_name)
+			.unwrap_or_else(|_| panic!("Cannot load real integration: {}", lib_name));
+		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> =
+			lib.get(b"gmod13_open").expect("symbol not found");
+		
+		print_log("Delegated to real integration");
+		func(lua)
+	}
+}
+
 #[gmod13_open]
 fn gmod13_open(lua: State) -> i32 {
 	print_log("Checking for updates...");
+	
+	// Ensure destination directory exists
+	if let Err(e) = fs::create_dir_all(DEST_DIR) {
+		print_log(&format!("Failed to create directory: {}", e));
+		return delegate_to_real_loader(lua);
+	}
+
+	let mut version_cache = load_loader_version_cache();
 	let client = Client::new();
 
 	let release: Release = match client
@@ -64,61 +115,52 @@ fn gmod13_open(lua: State) -> i32 {
 		Ok(r) => r,
 		Err(e) => {
 			print_log(&format!("Error fetching release: {}", e));
-			return 1;
+			return delegate_to_real_loader(lua);
 		}
 	};
+
+	// Check if we need to update
+	if let Some(current_version) = &version_cache.loader_version {
+		if current_version == &release.tag_name {
+			print_log(&format!("Already up to date ({})", release.tag_name));
+			return delegate_to_real_loader(lua);
+		}
+	}
+
+	print_log(&format!("Updating from {} to {}", 
+		version_cache.loader_version.as_deref().unwrap_or("unknown"), 
+		release.tag_name));
 
 	// Determine the correct asset names for the current platform
-	let suffix = if cfg!(target_os = "windows") {
-		if cfg!(target_arch = "x86_64") { "win64" } else { "win32" }
-	} else {
-		if cfg!(target_arch = "x86_64") { "linux64" } else { "linux" }
-	};
-	
-	let target_assets = [
-		format!("gmod_integration_{}.dll", suffix),
-		format!("gmsv_gmod_integration_loader_{}.dll", suffix),
-	];
+	let suffix = get_platform_suffix();
+	let target_asset = format!("gmod_integration_{}.dll", suffix);
 	
 	for asset in &release.assets {
-		if target_assets.contains(&asset.name) {
+		if asset.name == target_asset {
 			if let Err(e) = download_asset(&client, asset) {
 				print_log(&format!("Failed to download {}: {}", asset.name, e));
+				return delegate_to_real_loader(lua);
 			}
+			break;
 		}
 	}
 
-	// Delegate to the real loader DLL
-	unsafe {
-		let suffix = if cfg!(target_os = "windows") {
-			if cfg!(target_arch = "x86_64") { "win64" } else { "win32" }
-		} else {
-			if cfg!(target_arch = "x86_64") { "linux64" } else { "linux" }
-		};
-		let lib_name = format!("{}/gmsv_gmod_integration_loader_{}.dll", DEST_DIR, suffix);
+	// Update version cache
+	version_cache.loader_version = Some(release.tag_name);
+	save_loader_version_cache(&version_cache);
 
-		let lib = libloading::Library::new(&lib_name)
-			.unwrap_or_else(|_| panic!("Cannot load real loader: {}", lib_name));
-		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> =
-			lib.get(b"gmod13_open").expect("symbol not found");
-		
-		print_log("Loaded successfully");
-		func(lua)
-	}
+	print_log("Update completed, delegating to real integration");
+	delegate_to_real_loader(lua)
 }
 
 #[gmod13_close]
 fn gmod13_close(lua: State) -> i32 {
 	unsafe {
-		let suffix = if cfg!(target_os = "windows") {
-			if cfg!(target_arch = "x86_64") { "win64" } else { "win32" }
-		} else {
-			if cfg!(target_arch = "x86_64") { "linux64" } else { "linux" }
-		};
-		let lib_name = format!("{}/gmsv_gmod_integration_loader_{}.dll", DEST_DIR, suffix);
+		let suffix = get_platform_suffix();
+		let lib_name = format!("{}/gmod_integration_{}.dll", DEST_DIR, suffix);
 
 		let lib = libloading::Library::new(&lib_name)
-			.unwrap_or_else(|_| panic!("Cannot load real loader: {}", lib_name));
+			.unwrap_or_else(|_| panic!("Cannot load real integration: {}", lib_name));
 		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> =
 			lib.get(b"gmod13_close").expect("symbol not found");
 		func(lua)
