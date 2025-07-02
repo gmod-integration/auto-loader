@@ -1,0 +1,33 @@
+# Dossier de build de Rust
+/target/
+
+# Fichiers de sauvegarde et fichiers générés
+**/*.rs.bk
+**/*.o
+**/*.rlib
+
+# Binaries compilés
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Fichier de lock (pour les librairies, mais gardez-le si c'est une application)
+/#Cargo.lock
+
+# Répertoires et fichiers d’IDE
+.idea/
+.vscode/
+
+# Mac OS
+.DS_Store
+
+# Fichiers temporaires et de log
+*~
+*.log
+
+# Variables d’environnement
+.env
+
+# Autres fichiers à ignorer (ajoutez si nécessaire)
+# version.txt
