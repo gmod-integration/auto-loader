@@ -3,8 +3,18 @@ name: Build and Release DLLs
 on:
     push:
         branches: [main, master]
+        paths:
+            - 'crates/**'
+            - 'Cargo.*'
+            - 'rust-toolchain.toml'
+            - 'Dockerfile'
     pull_request:
         branches: [main, master]
+        paths:
+            - 'crates/**'
+            - 'Cargo.*'
+            - 'rust-toolchain.toml'
+            - 'Dockerfile'
 
 env:
     REGISTRY: ghcr.io
