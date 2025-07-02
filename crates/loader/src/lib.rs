@@ -1,9 +1,8 @@
-use gmod::{gmod13_close, gmod13_open, lua::LuaString, lua::State};
+use gmod::{gmod13_close, gmod13_open, lua::State};
 use serde::Deserialize;
 use std::{fs, io::copy, path::{Path, PathBuf}};
 use reqwest::blocking::Client;
 use zip::ZipArchive;
-use std::ffi::CString;
 
 #[derive(Deserialize, Debug)]
 struct Release {
