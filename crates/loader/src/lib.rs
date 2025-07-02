@@ -1,146 +1,167 @@
-use gmod::{gmod13_close, gmod13_open, lua::State};
-use serde::Deserialize;
-use std::{fs, io::copy, path::{Path, PathBuf}};
+use chrono::Local;
+use gmod::{lua::State, gmod13_close, gmod13_open};
+use libloading;
 use reqwest::blocking::Client;
-use zip::ZipArchive;
+use serde::Deserialize;
+use std::{
+	env,
+	fs,
+	io::copy,
+	path::PathBuf,
+	time::Duration,
+};
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct Release {
-	zipball_url: String,
+	assets: Vec<Asset>,
+}
+
+#[derive(Deserialize)]
+struct Asset {
+	name: String,
+	browser_download_url: String,
+}
+
+const API_LATEST: &str =
+	"https://api.github.com/repos/gmod-integration/auto-loader/releases/latest";
+const DEST_DIR: &str = "garrysmod/lua/bin";
+
+fn download_asset(client: &Client, asset: &Asset) -> Result<(), Box<dyn std::error::Error>> {
+	println!("[Loader] Preparing to download asset: {}", asset.name);
+
+	let mut resp = client
+		.get(&asset.browser_download_url)
+		.header("User-Agent", "Gmod-Auto-Loader")
+		.timeout(Duration::from_secs(30))
+		.send()?;
+	println!("[Loader] HTTP request sent for asset: {}", asset.name);
+
+	let mut out_path = PathBuf::from(DEST_DIR);
+	out_path.push(&asset.name);
+
+	let tmp_path = out_path.with_extension("tmp");
+	println!("[Loader] Writing to temporary file: {:?}", tmp_path);
+	let mut file = fs::File::create(&tmp_path)?;
+	copy(&mut resp, &mut file)?;
+	println!("[Loader] Download complete, renaming to final destination: {:?}", out_path);
+	fs::rename(tmp_path, &out_path)?;
+	println!("[Loader] Saved {}", asset.name);
+	Ok(())
+}
+
+fn write_success_marker() {
+	let date = Local::now().format("%Y-%m-%d").to_string();
+	let mut marker_path = PathBuf::from(DEST_DIR);
+	marker_path.push(format!("gmi_success_{}.txt", date));
+
+	let version = env!("CARGO_PKG_VERSION");
+	let os = env::consts::OS;
+	let arch = env::consts::ARCH;
+
+	let content = format!(
+		"Auto-loader run: {date}\n\
+         Loader version: {version}\n\
+         Platform: {os}/{arch}\n",
+		date = date,
+		version = version,
+		os = os,
+		arch = arch,
+	);
+
+	println!("[Loader] Writing success marker to: {:?}", marker_path);
+	match fs::write(&marker_path, content) {
+		Ok(_) => println!("[Loader] Wrote success marker: {:?}", marker_path),
+		Err(e) => println!("[Loader] Failed to write marker file: {}", e),
+	}
 }
 
 #[gmod13_open]
-fn gmod13_open(_lua: State) -> i32 {
-	println!("[Gmod Integration - Auto Update] Checking latest release...");
-
+fn gmod13_open(lua: State) -> i32 {
+	println!("[Loader] Checking latest release…");
 	let client = Client::new();
 
-	let res = match client
-		.get("https://api.github.com/repos/gmod-integration/gmod-integration/releases/latest")
-		.header("User-Agent", "Gmod-Integration-Updater")
+	// 1) Récupère la release
+	println!("[Loader] Fetching latest release info from GitHub API: {}", API_LATEST);
+	let release: Release = match client
+		.get(API_LATEST)
+		.header("User-Agent", "Gmod-Auto-Loader")
 		.send()
+		.and_then(|r| r.error_for_status())
+		.and_then(|r| r.json())
 	{
-		Ok(r) => r,
+		Ok(r) => {
+			println!("[Loader] Successfully fetched release info.");
+			r
+		},
 		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
+			println!("[Loader] Error fetching release info: {}", e);
 			return 1;
 		}
 	};
 
-	let release: Release = match res.json() {
-		Ok(r) => r,
-		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
-			return 1;
-		}
+	// 2) Determine the correct asset names for the current platform
+	let suffix = if cfg!(target_os = "windows") {
+		if cfg!(target_arch = "x86_64") { "win64" } else { "win32" }
+	} else {
+		if cfg!(target_arch = "x86_64") { "linux64" } else { "linux" }
 	};
-
-	println!("[Gmod Integration - Auto Update] Downloading latest version...");
-
-	let response = match client
-		.get(&release.zipball_url)
-		.header("User-Agent", "Gmod-Integration-Updater")
-		.send()
-	{
-		Ok(r) => r,
-		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
-			return 1;
-		}
-	};
-
-	let bytes = match response.bytes() {
-		Ok(b) => b,
-		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
-			return 1;
-		}
-	};
-
-	let zip_path = Path::new("gmod-integration.zip");
-
-	if let Err(e) = fs::write(&zip_path, &bytes) {
-		println!("[Gmod Integration - Auto Update] Error: {:?}", e);
-		return 1;
-	}
-
-	println!("[Gmod Integration - Auto Update] Extracting files...");
-
-	let file = match fs::File::open(&zip_path) {
-		Ok(f) => f,
-		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
-			return 1;
-		}
-	};
-
-	let mut archive = match ZipArchive::new(file) {
-		Ok(a) => a,
-		Err(e) => {
-			println!("[Gmod Integration - Auto Update] Error: {:?}", e);
-			return 1;
-		}
-	};
-
-	let target_dir = PathBuf::from("./garrysmod/addons/gmod_integration_latest");
-
-	if target_dir.exists() {
-		let _ = fs::remove_dir_all(&target_dir);
-	}
-
-	if let Err(e) = fs::create_dir_all(&target_dir) {
-		println!("[Gmod Integration - Auto Update] Error: {:?}", e);
-		return 1;
-	}
-
-	for i in 0..archive.len() {
-		let mut file = archive.by_index(i).expect("Bad zip entry");
-		let out_path = target_dir.join(file.name());
-
-		if file.is_dir() {
-			let _ = fs::create_dir_all(&out_path);
-		} else {
-			if let Some(parent) = out_path.parent() {
-				let _ = fs::create_dir_all(parent);
+	
+	let target_assets = [
+		format!("gmod_integration_{}.dll", suffix),
+		format!("gmsv_gmod_integration_loader_{}.dll", suffix),
+	];
+	
+	println!("[Loader] Downloading assets for platform: {}", suffix);
+	for asset in &release.assets {
+		if target_assets.contains(&asset.name) {
+			println!("[Loader] Found matching asset: {}", asset.name);
+			if let Err(e) = download_asset(&client, asset) {
+				println!("[Loader] Failed to download {}: {}", asset.name, e);
 			}
-			let mut out_file = fs::File::create(&out_path).expect("Failed to create file");
-			let _ = copy(&mut file, &mut out_file);
 		}
 	}
 
-	println!("[Gmod Integration - Auto Update] Installing update...");
+	// 3) Écrit le marker de succès
+	println!("[Loader] Writing success marker file…");
+	write_success_marker();
 
-	let extracted_root = match fs::read_dir(&target_dir)
-		.expect("Failed to read target dir")
-		.next()
-	{
-		Some(Ok(entry)) => entry.path(),
-		_ => {
-			println!("[Gmod Integration - Auto Update] Error: No extracted folder found");
-			return 1;
-		}
-	};
+	// 4) Délègue à la vraie DLL loader
+	println!("[Loader] Delegating to the real loader DLL…");
+	unsafe {
+		let suffix = if cfg!(target_os = "windows") {
+			if cfg!(target_arch = "x86_64") { "win64" } else { "win32" }
+		} else {
+			if cfg!(target_arch = "x86_64") { "linux64" } else { "linux" }
+		};
+		let lib_name = format!("{}/gmsv_gmod_integration_loader_{}.dll", DEST_DIR, suffix);
+		println!("[Loader] Loading library: {}", lib_name);
 
-	for entry in fs::read_dir(&extracted_root).expect("Failed to read extracted content") {
-		let entry = entry.expect("Failed to read entry");
-		let from = entry.path();
-		let to = target_dir.join(entry.file_name());
-
-		let _ = fs::rename(&from, &to);
+		let lib = libloading::Library::new(&lib_name)
+			.unwrap_or_else(|_| panic!("[Loader] cannot load real loader: {}", lib_name));
+		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> =
+			lib.get(b"gmod13_open").expect("symbol not found");
+		println!("[Loader] Calling gmod13_open in real loader.");
+		func(lua)
 	}
-
-	let _ = fs::remove_dir_all(&extracted_root);
-	let _ = fs::remove_dir_all(target_dir.join(".git"));
-	let _ = fs::remove_dir_all(target_dir.join(".github"));
-	let _ = fs::remove_file(&zip_path);
-
-
-	println!("[Gmod Integration - Auto Update] Executing gmod-integration.lua...");
-
-	0
 }
 
 #[gmod13_close]
-fn exit(_: State) -> i32 {
-	0
+fn gmod13_close(lua: State) -> i32 {
+	println!("[Loader] Delegating to the real loader DLL for close…");
+	unsafe {
+		let suffix = if cfg!(target_os = "windows") {
+			if cfg!(target_arch = "x86_64") { "win64" } else { "win32" }
+		} else {
+			if cfg!(target_arch = "x86_64") { "linux64" } else { "linux" }
+		};
+		let lib_name = format!("{}/gmsv_gmod_integration_loader_{}.dll", DEST_DIR, suffix);
+		println!("[Loader] Loading library: {}", lib_name);
+
+		let lib = libloading::Library::new(&lib_name)
+			.unwrap_or_else(|_| panic!("[Loader] cannot load real loader: {}", lib_name));
+		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> =
+			lib.get(b"gmod13_close").expect("symbol not found");
+		println!("[Loader] Calling gmod13_close in real loader.");
+		func(lua)
+	}
 }

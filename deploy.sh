@@ -12,17 +12,27 @@ fi
 # Read the current version
 VERSION=$(cat "$VERSION_FILE")
 
-NAMEFILE="gmsv_gmod_integration_${VERSION}_linux.dll"
+LOCAL_FILE_REAL="$HOME/my_gmod_dll/target/i686-unknown-linux-gnu/release/libgmod_integration.so"
+REMOTE_FILE_REAL="/var/lib/pterodactyl/volumes/4541b777-af44-4f01-b9fe-097133365fa9/garrysmod/lua/bin/gmsv_gmod_integration_dev_${VERSION}_linux.dll"
 
-LOCAL_FILE="./target/i686-unknown-linux-gnu/debug/libgmod_integration.so"
-REMOTE_FILE="/var/lib/pterodactyl/volumes/4541b777-af44-4f01-b9fe-097133365fa9/garrysmod/lua/bin/$NAMEFILE"
+LOCAL_FILE_LOADER="$HOME/my_gmod_dll/target/i686-unknown-linux-gnu/release/libgmod_integration_loader.so"
+REMOTE_FILE_LOADER="/var/lib/pterodactyl/volumes/4541b777-af44-4f01-b9fe-097133365fa9/garrysmod/lua/bin/gmsv_gmod_integration_dev_loader_${VERSION}_linux.dll"
+
 REMOTE_HOST="ptero"
 
 echo "Building project..."
-cargo build --target i686-unknown-linux-gnu
 
-echo "Uploading $LOCAL_FILE to $REMOTE_HOST:$REMOTE_FILE"
-scp "$LOCAL_FILE" "$REMOTE_HOST:$REMOTE_FILE"
+cd ~/my_gmod_dll/crates/loader
+cargo build --release --target i686-unknown-linux-gnu
+
+cd ~/my_gmod_dll/crates/real
+cargo build --release --target i686-unknown-linux-gnu
+
+echo "Uploading $LOCAL_FILE_REAL to $REMOTE_HOST:$REMOTE_FILE_REAL"
+scp "$LOCAL_FILE_REAL" "$REMOTE_HOST:$REMOTE_FILE_REAL"
+
+echo "Uploading $LOCAL_FILE_LOADER to $REMOTE_HOST:$REMOTE_FILE_LOADER"
+scp "$LOCAL_FILE_LOADER" "$REMOTE_HOST:$REMOTE_FILE_LOADER"
 
 # Increment the version
 NEW_VERSION=$((VERSION + 1))
