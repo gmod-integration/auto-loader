@@ -7,7 +7,6 @@ use chrono::Local;
 
 #[derive(Deserialize, Debug)]
 struct Release {
-	zipball_url: String,
 	tag_name: String,
 	assets: Vec<Asset>,
 }
@@ -201,7 +200,7 @@ fn gmod13_open(_lua: State) -> i32 {
 	// Construct the direct GitHub archive URL instead of using the API's zipball_url
 	let download_url = format!("https://github.com/gmod-integration/gmod-integration/archive/refs/tags/{}.zip", release.tag_name);
 	print_log(&format!("Using direct download URL: {}", download_url));
-	
+
 	let response = match client
 		.get(&download_url)
 		.header("User-Agent", "Gmod-Integration-Updater")
