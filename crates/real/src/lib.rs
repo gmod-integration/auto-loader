@@ -30,7 +30,7 @@ const VERSION_FILE: &str = "garrysmod/lua/bin/versions.json";
 const BIN_DIR: &str = "garrysmod/lua/bin";
 const GWSOCKETS_API: &str = "https://api.github.com/repos/FredyH/GWSockets/releases/latest";
 const REQWEST_API: &str = "https://api.github.com/repos/WilliamVenner/gmsv_reqwest/releases/latest";
-const TMP_JSON_PATH: &str = "/garrysmod/data/gm_integration/tmp.json";
+const TMP_JSON_PATH: &str = "garrysmod/data/gm_integration/tmp.json";
 
 fn print_log(msg: &str) {
 	let time = Local::now().format("%Y-%m-%d %H:%M:%S");
