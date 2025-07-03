@@ -353,6 +353,18 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	}
 
+	// Rename the lua/gmod_integration folder to lua/gmod_integration_latest
+	let old_lua_folder_path = target_dir.join("lua/gmod_integration");
+	let new_lua_folder_path = target_dir.join("lua/gmod_integration_latest");
+	
+	if old_lua_folder_path.exists() {
+		if let Err(e) = fs::rename(&old_lua_folder_path, &new_lua_folder_path) {
+			print_log(&format!("Failed to rename lua/gmod_integration folder: {}", e));
+		} else {
+			print_log("Renamed lua/gmod_integration folder to lua/gmod_integration_latest");
+		}
+	}
+
 	// Update main integration version and save
 	version_cache.gmod_integration = Some(release.tag_name);
 	save_version_cache(&version_cache);
