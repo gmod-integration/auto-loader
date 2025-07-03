@@ -162,8 +162,8 @@ fn gmod13_open(_lua: State) -> i32 {
 	// Save dependency versions
 	save_version_cache(&version_cache);
 
-	// Continue with main integration update
-	print_log("Checking main integration...");
+	// Continue with gmod integration update
+	print_log("Checking Gmod Integration...");
 
 	let res = match client
 		.get("https://api.github.com/repos/gmod-integration/gmod-integration/releases/latest")
@@ -186,11 +186,19 @@ fn gmod13_open(_lua: State) -> i32 {
 	};
 
 	// Check if main integration needs update
+	let addon_exists = Path::new("./garrysmod/addons/_gmod_integration_latest").exists();
+	
 	if let Some(current) = &version_cache.gmod_integration {
-		if current == &release.tag_name {
-			print_log(&format!("Main integration is up to date ({})", release.tag_name));
+		if current == &release.tag_name && addon_exists {
+			print_log(&format!("Gmod integration is up to date ({})", release.tag_name));
 			return 0;
 		}
+	}
+
+	if !addon_exists {
+		print_log("Addon folder missing, downloading...");
+	} else {
+		print_log("Version mismatch, updating...");
 	}
 
 	print_log("Downloading latest version...");
