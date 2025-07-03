@@ -309,6 +309,6 @@ fn gmod13_open(_lua: State) -> i32 {
 }
 
 #[gmod13_close]
-fn exit(_: State) -> i32 {
+fn gmod13_close(_: State) -> i32 {
 	0
 }
