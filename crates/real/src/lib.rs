@@ -117,15 +117,15 @@ fn update_tmp_json() {
 		let _ = fs::create_dir_all(parent);
 	}
 	
-	// Update tmp.json with gmod_integration_latest_updated = true
+	// Update tmp.json with _gmod_integration_latest_updated = true
 	let tmp_content = r#"{
-	"gmod_integration_latest_updated": true
+	"_gmod_integration_latest_updated": true
 }"#;
 	
 	if let Err(e) = fs::write(TMP_JSON_PATH, tmp_content) {
 		print_log(&format!("Failed to update tmp.json: {}", e));
 	} else {
-		print_log("Updated tmp.json with gmod_integration_latest_updated = true");
+		print_log("Updated tmp.json with _gmod_integration_latest_updated = true");
 	}
 }
 
@@ -268,7 +268,7 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	};
 
-	let target_dir = PathBuf::from("./garrysmod/addons/gmod_integration_latest");
+	let target_dir = PathBuf::from("./garrysmod/addons/_gmod_integration_latest");
 
 	if target_dir.exists() {
 		let _ = fs::remove_dir_all(&target_dir);
@@ -323,37 +323,37 @@ fn gmod13_open(_lua: State) -> i32 {
 
 	// Rename the main Lua file
 	let old_lua_path = target_dir.join("lua/autorun/gmod_integration.lua");
-	let new_lua_path = target_dir.join("lua/autorun/gmod_integration_latest.lua");
+	let new_lua_path = target_dir.join("lua/autorun/_gmod_integration_latest.lua");
 	
 	if old_lua_path.exists() {
 		if let Err(e) = fs::rename(&old_lua_path, &new_lua_path) {
 			print_log(&format!("Failed to rename Lua file: {}", e));
 		} else {
-			print_log("Renamed gmod_integration.lua to gmod_integration_latest.lua");
+			print_log("Renamed gmod_integration.lua to _gmod_integration_latest.lua");
 		}
 	}
 
 	// Rename the main folder if it exists
 	let old_folder_path = target_dir.join("gmod_integration");
-	let new_folder_path = target_dir.join("gmod_integration_latest");
+	let new_folder_path = target_dir.join("_gmod_integration_latest");
 	
 	if old_folder_path.exists() {
 		if let Err(e) = fs::rename(&old_folder_path, &new_folder_path) {
 			print_log(&format!("Failed to rename main folder: {}", e));
 		} else {
-			print_log("Renamed gmod_integration folder to gmod_integration_latest");
+			print_log("Renamed gmod_integration folder to _gmod_integration_latest");
 		}
 	}
 
-	// Rename the lua/gmod_integration folder to lua/gmod_integration_latest
+	// Rename the lua/gmod_integration folder to lua/_gmod_integration_latest
 	let old_lua_folder_path = target_dir.join("lua/gmod_integration");
-	let new_lua_folder_path = target_dir.join("lua/gmod_integration_latest");
+	let new_lua_folder_path = target_dir.join("lua/_gmod_integration_latest");
 	
 	if old_lua_folder_path.exists() {
 		if let Err(e) = fs::rename(&old_lua_folder_path, &new_lua_folder_path) {
 			print_log(&format!("Failed to rename lua/gmod_integration folder: {}", e));
 		} else {
-			print_log("Renamed lua/gmod_integration folder to lua/gmod_integration_latest");
+			print_log("Renamed lua/gmod_integration folder to lua/_gmod_integration_latest");
 		}
 	}
 
