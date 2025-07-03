@@ -198,8 +198,12 @@ fn gmod13_open(_lua: State) -> i32 {
 
 	print_log("Downloading latest version...");
 
+	// Construct the direct GitHub archive URL instead of using the API's zipball_url
+	let download_url = format!("https://github.com/gmod-integration/gmod-integration/archive/refs/tags/{}.zip", release.tag_name);
+	print_log(&format!("Using direct download URL: {}", download_url));
+	
 	let response = match client
-		.get(&release.zipball_url)
+		.get(&download_url)
 		.header("User-Agent", "Gmod-Integration-Updater")
 		.send()
 	{
@@ -213,7 +217,13 @@ fn gmod13_open(_lua: State) -> i32 {
 	// Check if response is successful
 	if !response.status().is_success() {
 		print_log(&format!("Download failed with status: {}", response.status()));
+		print_log(&format!("Final URL: {}", response.url()));
 		return 1;
+	}
+
+	// Check content type
+	if let Some(content_type) = response.headers().get("content-type") {
+		print_log(&format!("Content-Type: {:?}", content_type));
 	}
 
 	let bytes = match response.bytes() {
@@ -231,6 +241,13 @@ fn gmod13_open(_lua: State) -> i32 {
 	}
 
 	print_log(&format!("Downloaded {} bytes", bytes.len()));
+
+	// Check if it's actually a ZIP file by looking at the first few bytes
+	if bytes.len() < 4 || &bytes[0..4] != b"PK\x03\x04" {
+		print_log("Downloaded file is not a valid ZIP file");
+		print_log(&format!("First 50 bytes: {:?}", &bytes[0..bytes.len().min(50)]));
+		return 1;
+	}
 
 	let zip_path = Path::new("gmod-integration.zip");
 
