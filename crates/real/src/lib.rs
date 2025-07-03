@@ -210,6 +210,12 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	};
 
+	// Check if response is successful
+	if !response.status().is_success() {
+		print_log(&format!("Download failed with status: {}", response.status()));
+		return 1;
+	}
+
 	let bytes = match response.bytes() {
 		Ok(b) => b,
 		Err(e) => {
@@ -217,6 +223,14 @@ fn gmod13_open(_lua: State) -> i32 {
 			return 1;
 		}
 	};
+
+	// Verify we have data
+	if bytes.is_empty() {
+		print_log("Downloaded file is empty");
+		return 1;
+	}
+
+	print_log(&format!("Downloaded {} bytes", bytes.len()));
 
 	let zip_path = Path::new("gmod-integration.zip");
 
@@ -239,6 +253,9 @@ fn gmod13_open(_lua: State) -> i32 {
 		Ok(a) => a,
 		Err(e) => {
 			print_log(&format!("Failed to read zip archive: {:?}", e));
+			print_log("This might be due to incomplete download or invalid zip file");
+			// Clean up the invalid zip file
+			let _ = fs::remove_file(&zip_path);
 			return 1;
 		}
 	};
