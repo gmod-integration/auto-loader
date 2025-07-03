@@ -31,6 +31,7 @@ const BIN_DIR: &str = "garrysmod/lua/bin";
 const GWSOCKETS_API: &str = "https://api.github.com/repos/FredyH/GWSockets/releases/latest";
 const REQWEST_API: &str = "https://api.github.com/repos/WilliamVenner/gmsv_reqwest/releases/latest";
 const TMP_JSON_PATH: &str = "garrysmod/data/gm_integration/tmp.json";
+const CONFIG_JSON_PATH: &str = "garrysmod/data/gm_integration/config.json";
 
 fn print_log(msg: &str) {
 	let time = Local::now().format("%Y-%m-%d %H:%M:%S");
@@ -130,6 +131,26 @@ fn update_tmp_json() {
 	}
 }
 
+#[derive(Deserialize, Debug)]
+struct Config {
+	#[serde(rename = "dllBranch")]
+	dll_branch: Option<String>,
+}
+
+fn load_config() -> Option<Config> {
+	fs::read_to_string(CONFIG_JSON_PATH)
+		.ok()
+		.and_then(|content| serde_json::from_str(&content).ok())
+}
+
+fn get_api_url_for_branch(branch: &str) -> String {
+	if branch == "main" || branch.is_empty() {
+		"https://api.github.com/repos/gmod-integration/gmod-integration/releases/latest".to_string()
+	} else {
+		format!("https://api.github.com/repos/gmod-integration/gmod-integration/releases/tags/{}", branch)
+	}
+}
+
 #[gmod13_open]
 fn gmod13_open(_lua: State) -> i32 {
 	print_log("Starting auto-updater...");
@@ -168,8 +189,19 @@ fn gmod13_open(_lua: State) -> i32 {
 	// Continue with main integration update
 	print_log("Checking main integration...");
 
+	// Load config and determine branch
+	let config = load_config();
+	let branch = config
+		.as_ref()
+		.and_then(|c| c.dll_branch.as_ref())
+		.map(|s| s.as_str())
+		.unwrap_or("main");
+
+	print_log(&format!("Using branch: {}", branch));
+
+	let api_url = get_api_url_for_branch(branch);
 	let res = match client
-		.get("https://api.github.com/repos/gmod-integration/gmod-integration/releases/latest")
+		.get(&api_url)
 		.header("User-Agent", "Gmod-Integration-Updater")
 		.send()
 	{
@@ -196,7 +228,7 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	}
 
-	print_log("Downloading latest version...");
+	print_log(&format!("Downloading {} version...", release.tag_name));
 
 	let response = match client
 		.get(&release.zipball_url)
