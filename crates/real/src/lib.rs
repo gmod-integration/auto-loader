@@ -308,6 +308,18 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	}
 
+	// Rename the main folder if it exists
+	let old_folder_path = target_dir.join("gmod_integration");
+	let new_folder_path = target_dir.join("gmod_integration_latest");
+	
+	if old_folder_path.exists() {
+		if let Err(e) = fs::rename(&old_folder_path, &new_folder_path) {
+			print_log(&format!("Failed to rename main folder: {}", e));
+		} else {
+			print_log("Renamed gmod_integration folder to gmod_integration_latest");
+		}
+	}
+
 	// Update main integration version and save
 	version_cache.gmod_integration = Some(release.tag_name);
 	save_version_cache(&version_cache);
