@@ -140,7 +140,6 @@ fn gmod13_open(_lua: State) -> i32 {
 	print_log("Checking dependencies...");
 
 	// Download GWsockets
-	print_log("Checking GWsockets...");
 	match download_dependency(&client, GWSOCKETS_API, "gwsockets", version_cache.gwsockets.as_ref()) {
 		Ok(Some(new_version)) => {
 			version_cache.gwsockets = Some(new_version);
@@ -151,7 +150,6 @@ fn gmod13_open(_lua: State) -> i32 {
 	}
 
 	// Download reqwest
-	print_log("Checking reqwest...");
 	match download_dependency(&client, REQWEST_API, "reqwest", version_cache.reqwest.as_ref()) {
 		Ok(Some(new_version)) => {
 			version_cache.reqwest = Some(new_version);
@@ -199,7 +197,6 @@ fn gmod13_open(_lua: State) -> i32 {
 
 	// Construct the direct GitHub archive URL instead of using the API's zipball_url
 	let download_url = format!("https://github.com/gmod-integration/gmod-integration/archive/refs/tags/{}.zip", release.tag_name);
-	print_log(&format!("Using direct download URL: {}", download_url));
 
 	let response = match client
 		.get(&download_url)
@@ -216,7 +213,6 @@ fn gmod13_open(_lua: State) -> i32 {
 	// Check if response is successful
 	if !response.status().is_success() {
 		print_log(&format!("Download failed with status: {}", response.status()));
-		print_log(&format!("Final URL: {}", response.url()));
 		return 1;
 	}
 
@@ -239,12 +235,9 @@ fn gmod13_open(_lua: State) -> i32 {
 		return 1;
 	}
 
-	print_log(&format!("Downloaded {} bytes", bytes.len()));
-
 	// Check if it's actually a ZIP file by looking at the first few bytes
 	if bytes.len() < 4 || &bytes[0..4] != b"PK\x03\x04" {
 		print_log("Downloaded file is not a valid ZIP file");
-		print_log(&format!("First 50 bytes: {:?}", &bytes[0..bytes.len().min(50)]));
 		return 1;
 	}
 
@@ -269,7 +262,6 @@ fn gmod13_open(_lua: State) -> i32 {
 		Ok(a) => a,
 		Err(e) => {
 			print_log(&format!("Failed to read zip archive: {:?}", e));
-			print_log("This might be due to incomplete download or invalid zip file");
 			// Clean up the invalid zip file
 			let _ = fs::remove_file(&zip_path);
 			return 1;
