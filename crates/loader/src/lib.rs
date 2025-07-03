@@ -24,13 +24,16 @@ struct Asset {
 
 #[derive(Deserialize, Serialize, Default)]
 struct LoaderVersionCache {
-	loader_version: Option<String>,
+	gmod_integration_loader: Option<String>,
+	gmod_integration: Option<String>,
+	gwsockets: Option<String>,
+	reqwest: Option<String>,
 }
 
 const API_LATEST: &str =
 	"https://api.github.com/repos/gmod-integration/auto-loader/releases/latest";
 const DEST_DIR: &str = "garrysmod/lua/bin";
-const LOADER_VERSION_FILE: &str = "garrysmod/lua/bin/loader_version.json";
+const VERSION_FILE: &str = "garrysmod/lua/bin/versions.json";
 
 fn print_log(msg: &str) {
 	let time = Local::now().format("%Y-%m-%d %H:%M:%S");
@@ -38,7 +41,7 @@ fn print_log(msg: &str) {
 }
 
 fn load_loader_version_cache() -> LoaderVersionCache {
-	fs::read_to_string(LOADER_VERSION_FILE)
+	fs::read_to_string(VERSION_FILE)
 		.ok()
 		.and_then(|content| serde_json::from_str(&content).ok())
 		.unwrap_or_default()
@@ -46,7 +49,7 @@ fn load_loader_version_cache() -> LoaderVersionCache {
 
 fn save_loader_version_cache(cache: &LoaderVersionCache) {
 	if let Ok(content) = serde_json::to_string_pretty(cache) {
-		let _ = fs::write(LOADER_VERSION_FILE, content);
+		let _ = fs::write(VERSION_FILE, content);
 	}
 }
 
@@ -120,7 +123,7 @@ fn gmod13_open(lua: State) -> i32 {
 	};
 
 	// Check if we need to update
-	if let Some(current_version) = &version_cache.loader_version {
+	if let Some(current_version) = &version_cache.gmod_integration_loader {
 		if current_version == &release.tag_name {
 			print_log(&format!("Already up to date ({})", release.tag_name));
 			return delegate_to_real_loader(lua);
@@ -128,7 +131,7 @@ fn gmod13_open(lua: State) -> i32 {
 	}
 
 	print_log(&format!("Updating from {} to {}", 
-		version_cache.loader_version.as_deref().unwrap_or("unknown"), 
+		version_cache.gmod_integration_loader.as_deref().unwrap_or("unknown"), 
 		release.tag_name));
 
 	// Determine the correct asset names for the current platform
@@ -146,7 +149,7 @@ fn gmod13_open(lua: State) -> i32 {
 	}
 
 	// Update version cache
-	version_cache.loader_version = Some(release.tag_name);
+	version_cache.gmod_integration_loader = Some(release.tag_name);
 	save_loader_version_cache(&version_cache);
 
 	print_log("Update completed, delegating to real integration");

@@ -20,6 +20,7 @@ struct Asset {
 
 #[derive(Deserialize, Serialize, Default)]
 struct VersionCache {
+	gmod_integration_loader: Option<String>,
 	gmod_integration: Option<String>,
 	gwsockets: Option<String>,
 	reqwest: Option<String>,
