@@ -30,6 +30,7 @@ const VERSION_FILE: &str = "garrysmod/lua/bin/versions.json";
 const BIN_DIR: &str = "garrysmod/lua/bin";
 const GWSOCKETS_API: &str = "https://api.github.com/repos/FredyH/GWSockets/releases/latest";
 const REQWEST_API: &str = "https://api.github.com/repos/WilliamVenner/gmsv_reqwest/releases/latest";
+const TMP_JSON_PATH: &str = "garrysmod/garrysmod/data/gm_integration/tmp.json";
 
 fn print_log(msg: &str) {
 	let time = Local::now().format("%Y-%m-%d %H:%M:%S");
@@ -111,6 +112,24 @@ fn download_dependency(client: &Client, api_url: &str, dep_name: &str, current_v
 	Ok(None)
 }
 
+fn update_tmp_json() {
+	// Create directory if it doesn't exist
+	if let Some(parent) = Path::new(TMP_JSON_PATH).parent() {
+		let _ = fs::create_dir_all(parent);
+	}
+	
+	// Update tmp.json with gmod_integration_latest_updated = true
+	let tmp_content = r#"{
+	"gmod_integration_latest_updated": true
+}"#;
+	
+	if let Err(e) = fs::write(TMP_JSON_PATH, tmp_content) {
+		print_log(&format!("Failed to update tmp.json: {}", e));
+	} else {
+		print_log("Updated tmp.json with gmod_integration_latest_updated = true");
+	}
+}
+
 #[gmod13_open]
 fn gmod13_open(_lua: State) -> i32 {
 	print_log("Starting auto-updater...");
@@ -179,7 +198,6 @@ fn gmod13_open(_lua: State) -> i32 {
 
 	print_log("Downloading latest version...");
 
-	// ...existing code for downloading and extracting main integration...
 	let response = match client
 		.get(&release.zipball_url)
 		.header("User-Agent", "Gmod-Integration-Updater")
@@ -281,6 +299,9 @@ fn gmod13_open(_lua: State) -> i32 {
 	// Update main integration version and save
 	version_cache.gmod_integration = Some(release.tag_name);
 	save_version_cache(&version_cache);
+
+	// Update tmp.json to set gmod_integration_latest_updated = true (only when updated)
+	update_tmp_json();
 
 	print_log("Update completed successfully!");
 
