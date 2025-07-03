@@ -117,15 +117,15 @@ fn update_tmp_json() {
 		let _ = fs::create_dir_all(parent);
 	}
 	
-	// Update tmp.json with _gmod_integration_latest_updated = true
+	// Update tmp.json with gmod_integration_latest_updated = true
 	let tmp_content = r#"{
-	"_gmod_integration_latest_updated": true
+	"gmod_integration_latest_updated": true
 }"#;
 	
 	if let Err(e) = fs::write(TMP_JSON_PATH, tmp_content) {
 		print_log(&format!("Failed to update tmp.json: {}", e));
 	} else {
-		print_log("Updated tmp.json with _gmod_integration_latest_updated = true");
+		print_log("Updated tmp.json with gmod_integration_latest_updated = true");
 	}
 }
 
