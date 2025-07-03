@@ -296,6 +296,18 @@ fn gmod13_open(_lua: State) -> i32 {
 	let _ = fs::remove_dir_all(target_dir.join(".github"));
 	let _ = fs::remove_file(&zip_path);
 
+	// Rename the main Lua file
+	let old_lua_path = target_dir.join("lua/autorun/gmod_integration.lua");
+	let new_lua_path = target_dir.join("lua/autorun/gmod_integration_latest.lua");
+	
+	if old_lua_path.exists() {
+		if let Err(e) = fs::rename(&old_lua_path, &new_lua_path) {
+			print_log(&format!("Failed to rename Lua file: {}", e));
+		} else {
+			print_log("Renamed gmod_integration.lua to gmod_integration_latest.lua");
+		}
+	}
+
 	// Update main integration version and save
 	version_cache.gmod_integration = Some(release.tag_name);
 	save_version_cache(&version_cache);
