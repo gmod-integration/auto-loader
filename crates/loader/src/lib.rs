@@ -62,18 +62,21 @@ fn get_platform_suffix() -> &'static str {
 }
 
 fn download_asset(client: &Client, asset: &Asset) -> Result<(), Box<dyn std::error::Error>> {
+	// Download the asset from GitHub releases
 	let mut resp = client
 		.get(&asset.browser_download_url)
 		.header("User-Agent", "Gmod-Auto-Loader")
 		.timeout(Duration::from_secs(30))
 		.send()?;
 
+	// Create output path and temporary file for safe downloading
 	let mut out_path = PathBuf::from(DEST_DIR);
 	out_path.push(&asset.name);
 
 	let tmp_path = out_path.with_extension("tmp");
 	let mut file = fs::File::create(&tmp_path)?;
 	copy(&mut resp, &mut file)?;
+	// Atomically rename temporary file to final destination
 	fs::rename(tmp_path, &out_path)?;
 	
 	print_log(&format!("Downloaded {}", asset.name));
@@ -82,11 +85,13 @@ fn download_asset(client: &Client, asset: &Asset) -> Result<(), Box<dyn std::err
 
 fn delegate_to_real_loader(lua: State) -> i32 {
 	unsafe {
+		// Load the real integration library dynamically
 		let suffix = get_platform_suffix();
 		let lib_name = format!("{}/gmsv_gmod_integration_{}.dll", DEST_DIR, suffix);
 
 		let lib = libloading::Library::new(&lib_name)
 			.unwrap_or_else(|_| panic!("Cannot load real integration: {}", lib_name));
+		// Get the gmod13_open function from the real integration
 		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> =
 			lib.get(b"gmod13_open").expect("symbol not found");
 		
@@ -108,11 +113,12 @@ fn gmod13_open(lua: State) -> i32 {
 	let mut version_cache = load_loader_version_cache();
 	let client = Client::new();
 
-	// Check if the real integration file exists
+	// Check if the real integration file exists on disk
 	let suffix = get_platform_suffix();
 	let lib_path = format!("{}/gmsv_gmod_integration_{}.dll", DEST_DIR, suffix);
 	let file_exists = std::path::Path::new(&lib_path).exists();
 
+	// Fetch latest release information from GitHub API
 	let release: Release = match client
 		.get(API_LATEST)
 		.header("User-Agent", "Gmod-Auto-Loader")
@@ -127,7 +133,7 @@ fn gmod13_open(lua: State) -> i32 {
 		}
 	};
 
-	// Check if we need to update (version match AND file exists)
+	// Skip update if version matches and file exists
 	if let Some(current_version) = &version_cache.gmod_integration_loader {
 		if current_version == &release.tag_name && file_exists {
 			print_log(&format!("Already up to date ({})", release.tag_name));
@@ -143,7 +149,7 @@ fn gmod13_open(lua: State) -> i32 {
 			release.tag_name));
 	}
 
-	// Determine the correct asset names for the current platform
+	// Download the appropriate binary for current platform
 	let target_asset = format!("gmsv_gmod_integration_{}.dll", suffix);
 	
 	for asset in &release.assets {
@@ -156,7 +162,7 @@ fn gmod13_open(lua: State) -> i32 {
 		}
 	}
 
-	// Update version cache
+	// Update version cache with new version
 	version_cache.gmod_integration_loader = Some(release.tag_name);
 	save_loader_version_cache(&version_cache);
 
@@ -167,6 +173,7 @@ fn gmod13_open(lua: State) -> i32 {
 #[gmod13_close]
 fn gmod13_close(lua: State) -> i32 {
 	unsafe {
+		// Load and call the real integration's close function
 		let suffix = get_platform_suffix();
 		let lib_name = format!("{}/gmsv_gmod_integration_{}.dll", DEST_DIR, suffix);
 

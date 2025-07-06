@@ -58,6 +58,7 @@ fn get_platform_suffix() -> &'static str {
 }
 
 fn download_dependency_asset(client: &Client, asset: &Asset) -> Result<(), Box<dyn std::error::Error>> {
+	// Download dependency binary from GitHub releases
 	let mut resp = client
 		.get(&asset.browser_download_url)
 		.header("User-Agent", "Gmod-Integration-Updater")
@@ -69,6 +70,7 @@ fn download_dependency_asset(client: &Client, asset: &Asset) -> Result<(), Box<d
 	// Ensure bin directory exists
 	fs::create_dir_all(BIN_DIR)?;
 
+	// Download to temporary file then rename for atomic operation
 	let tmp_path = out_path.with_extension("tmp");
 	let mut file = fs::File::create(&tmp_path)?;
 	copy(&mut resp, &mut file)?;
@@ -79,6 +81,7 @@ fn download_dependency_asset(client: &Client, asset: &Asset) -> Result<(), Box<d
 }
 
 fn download_dependency(client: &Client, api_url: &str, dep_name: &str, current_version: Option<&String>) -> Result<Option<String>, Box<dyn std::error::Error>> {
+	// Fetch latest release information for dependency
 	let release: Release = client
 		.get(api_url)
 		.header("User-Agent", "Gmod-Integration-Updater")
@@ -86,7 +89,7 @@ fn download_dependency(client: &Client, api_url: &str, dep_name: &str, current_v
 		.error_for_status()?
 		.json()?;
 
-	// Check if we need to update
+	// Skip if already up to date
 	if let Some(current) = current_version {
 		if current == &release.tag_name {
 			print_log(&format!("{} is up to date ({})", dep_name, release.tag_name));
@@ -94,6 +97,7 @@ fn download_dependency(client: &Client, api_url: &str, dep_name: &str, current_v
 		}
 	}
 
+	// Find and download the correct binary for current platform
 	let suffix = get_platform_suffix();
 	let target_name = format!("gmsv_{}_{}.dll", dep_name.to_lowercase(), suffix);
 	
@@ -117,7 +121,7 @@ fn update_tmp_json() {
 		let _ = fs::create_dir_all(parent);
 	}
 	
-	// Update tmp.json with gmod_integration_latest_updated = true
+	// Signal to Lua that gmod integration was updated
 	let tmp_content = r#"{
 	"gmod_integration_latest_updated": true
 }"#;
@@ -136,7 +140,7 @@ fn gmod13_open(_lua: State) -> i32 {
 	let mut version_cache = load_version_cache();
 	let client = Client::new();
 
-	// Download dependencies first
+	// Update dependencies first (GWsockets and reqwest)
 	print_log("Checking dependencies...");
 
 	// Download GWsockets
@@ -162,9 +166,10 @@ fn gmod13_open(_lua: State) -> i32 {
 	// Save dependency versions
 	save_version_cache(&version_cache);
 
-	// Continue with gmod integration update
+	// Now update the main gmod integration addon
 	print_log("Checking Gmod Integration...");
 
+	// Fetch latest gmod integration release
 	let res = match client
 		.get("https://api.github.com/repos/gmod-integration/gmod-integration/releases/latest")
 		.header("User-Agent", "Gmod-Integration-Updater")
@@ -185,7 +190,7 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	};
 
-	// Check if main integration needs update
+	// Check if addon folder exists and version matches
 	let addon_exists = Path::new("./garrysmod/addons/_gmod_integration_latest").exists();
 	
 	if let Some(current) = &version_cache.gmod_integration {
@@ -203,7 +208,7 @@ fn gmod13_open(_lua: State) -> i32 {
 
 	print_log("Downloading latest version...");
 
-	// Construct the direct GitHub archive URL instead of using the API's zipball_url
+	// Download source code archive from GitHub
 	let download_url = format!("https://github.com/gmod-integration/gmod-integration/archive/refs/tags/{}.zip", release.tag_name);
 
 	let response = match client
@@ -243,7 +248,7 @@ fn gmod13_open(_lua: State) -> i32 {
 		return 1;
 	}
 
-	// Check if it's actually a ZIP file by looking at the first few bytes
+	// Validate downloaded ZIP file
 	if bytes.len() < 4 || &bytes[0..4] != b"PK\x03\x04" {
 		print_log("Downloaded file is not a valid ZIP file");
 		return 1;
@@ -276,6 +281,7 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	};
 
+	// Extract ZIP archive to addon directory
 	let target_dir = PathBuf::from("./garrysmod/addons/_gmod_integration_latest");
 
 	if target_dir.exists() {
@@ -329,7 +335,7 @@ fn gmod13_open(_lua: State) -> i32 {
 	let _ = fs::remove_dir_all(target_dir.join(".github"));
 	let _ = fs::remove_file(&zip_path);
 
-	// Rename the main Lua file
+	// Rename files and folders to use _gmod_integration_latest prefix
 	let old_lua_path = target_dir.join("lua/autorun/gmod_integration.lua");
 	let new_lua_path = target_dir.join("lua/autorun/_gmod_integration_latest.lua");
 	
@@ -365,11 +371,11 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	}
 
-	// Update main integration version and save
+	// Update version cache and signal completion
 	version_cache.gmod_integration = Some(release.tag_name);
 	save_version_cache(&version_cache);
 
-	// Update tmp.json to set gmod_integration_latest_updated = true (only when updated)
+	// Signal to Lua that update completed
 	update_tmp_json();
 
 	print_log("Update completed successfully!");
