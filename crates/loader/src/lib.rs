@@ -47,12 +47,6 @@ fn load_loader_version_cache() -> LoaderVersionCache {
 		.unwrap_or_default()
 }
 
-fn save_loader_version_cache(cache: &LoaderVersionCache) {
-	if let Ok(content) = serde_json::to_string_pretty(cache) {
-		let _ = fs::write(VERSION_FILE, content);
-	}
-}
-
 fn get_platform_suffix() -> &'static str {
 	if cfg!(target_os = "windows") {
 		if cfg!(target_arch = "x86_64") { "win64" } else { "win32" }
