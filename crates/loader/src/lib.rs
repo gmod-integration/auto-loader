@@ -108,6 +108,11 @@ fn gmod13_open(lua: State) -> i32 {
 	let mut version_cache = load_loader_version_cache();
 	let client = Client::new();
 
+	// Check if the real integration file exists
+	let suffix = get_platform_suffix();
+	let lib_path = format!("{}/gmsv_gmod_integration_{}.dll", DEST_DIR, suffix);
+	let file_exists = std::path::Path::new(&lib_path).exists();
+
 	let release: Release = match client
 		.get(API_LATEST)
 		.header("User-Agent", "Gmod-Auto-Loader")
@@ -122,20 +127,23 @@ fn gmod13_open(lua: State) -> i32 {
 		}
 	};
 
-	// Check if we need to update
+	// Check if we need to update (version match AND file exists)
 	if let Some(current_version) = &version_cache.gmod_integration_loader {
-		if current_version == &release.tag_name {
+		if current_version == &release.tag_name && file_exists {
 			print_log(&format!("Already up to date ({})", release.tag_name));
 			return delegate_to_real_loader(lua);
 		}
 	}
 
-	print_log(&format!("Updating from {} to {}", 
-		version_cache.gmod_integration_loader.as_deref().unwrap_or("unknown"), 
-		release.tag_name));
+	if !file_exists {
+		print_log("Real integration file missing, downloading...");
+	} else {
+		print_log(&format!("Updating from {} to {}", 
+			version_cache.gmod_integration_loader.as_deref().unwrap_or("unknown"), 
+			release.tag_name));
+	}
 
 	// Determine the correct asset names for the current platform
-	let suffix = get_platform_suffix();
 	let target_asset = format!("gmsv_gmod_integration_{}.dll", suffix);
 	
 	for asset in &release.assets {
