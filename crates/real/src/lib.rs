@@ -4,6 +4,7 @@ use std::{fs, io::copy, path::{Path, PathBuf}};
 use reqwest::blocking::Client;
 use zip::ZipArchive;
 use chrono::Local;
+use std::time::Duration;
 
 #[derive(Deserialize, Debug)]
 struct Release {
@@ -62,7 +63,13 @@ fn download_dependency_asset(client: &Client, asset: &Asset) -> Result<(), Box<d
 	let mut resp = client
 		.get(&asset.browser_download_url)
 		.header("User-Agent", "Gmod-Integration-Updater")
+		.timeout(Duration::from_secs(30))
 		.send()?;
+
+	// Check if response is successful
+	if !resp.status().is_success() {
+		return Err(format!("HTTP error: {}", resp.status()).into());
+	}
 
 	let mut out_path = PathBuf::from(BIN_DIR);
 	out_path.push(&asset.name);
@@ -74,6 +81,14 @@ fn download_dependency_asset(client: &Client, asset: &Asset) -> Result<(), Box<d
 	let tmp_path = out_path.with_extension("tmp");
 	let mut file = fs::File::create(&tmp_path)?;
 	copy(&mut resp, &mut file)?;
+	
+	// Verify file was written and has content
+	let metadata = fs::metadata(&tmp_path)?;
+	if metadata.len() == 0 {
+		fs::remove_file(&tmp_path)?;
+		return Err("Downloaded file is empty".into());
+	}
+
 	fs::rename(tmp_path, &out_path)?;
 	
 	print_log(&format!("Downloaded {}", asset.name));
@@ -85,9 +100,15 @@ fn download_dependency(client: &Client, api_url: &str, dep_name: &str, current_v
 	let release: Release = client
 		.get(api_url)
 		.header("User-Agent", "Gmod-Integration-Updater")
+		.timeout(Duration::from_secs(30))
 		.send()?
 		.error_for_status()?
 		.json()?;
+
+	// Validate release data
+	if release.tag_name.is_empty() {
+		return Err(format!("Invalid release for {}: empty tag name", dep_name).into());
+	}
 
 	// Skip if already up to date
 	if let Some(current) = current_version {
@@ -105,6 +126,9 @@ fn download_dependency(client: &Client, api_url: &str, dep_name: &str, current_v
 		if asset.name == target_name {
 			if let Err(e) = download_dependency_asset(client, asset) {
 				print_log(&format!("Failed to download {}: {}", asset.name, e));
+				// Clean up any partial download
+				let partial_path = PathBuf::from(BIN_DIR).join(&asset.name);
+				let _ = fs::remove_file(partial_path);
 				return Err(e);
 			}
 			return Ok(Some(release.tag_name));
@@ -138,41 +162,51 @@ fn gmod13_open(_lua: State) -> i32 {
 	print_log("Starting auto-updater...");
 
 	let mut version_cache = load_version_cache();
-	let client = Client::new();
+	let client = Client::builder()
+		.timeout(Duration::from_secs(30))
+		.build()
+		.unwrap_or_else(|_| Client::new());
 
 	// Update dependencies first (GWsockets and reqwest)
 	print_log("Checking dependencies...");
 
-	// Download GWsockets
+	// Download GWsockets with error recovery
 	match download_dependency(&client, GWSOCKETS_API, "gwsockets", version_cache.gwsockets.as_ref()) {
 		Ok(Some(new_version)) => {
 			version_cache.gwsockets = Some(new_version);
 			print_log("GWsockets updated");
 		}
 		Ok(None) => {}, // Up to date
-		Err(e) => print_log(&format!("Failed to update GWsockets: {}", e)),
+		Err(e) => {
+			print_log(&format!("Failed to update GWsockets: {}", e));
+			// Continue with other dependencies
+		}
 	}
 
-	// Download reqwest
+	// Download reqwest with error recovery
 	match download_dependency(&client, REQWEST_API, "reqwest", version_cache.reqwest.as_ref()) {
 		Ok(Some(new_version)) => {
 			version_cache.reqwest = Some(new_version);
 			print_log("reqwest updated");
 		}
 		Ok(None) => {}, // Up to date
-		Err(e) => print_log(&format!("Failed to update reqwest: {}", e)),
+		Err(e) => {
+			print_log(&format!("Failed to update reqwest: {}", e));
+			// Continue with main integration
+		}
 	}
 
-	// Save dependency versions
+	// Save dependency versions (even if some failed)
 	save_version_cache(&version_cache);
 
 	// Now update the main gmod integration addon
 	print_log("Checking Gmod Integration...");
 
-	// Fetch latest gmod integration release
+	// Fetch latest gmod integration release with timeout
 	let res = match client
 		.get("https://api.github.com/repos/gmod-integration/gmod-integration/releases/latest")
 		.header("User-Agent", "Gmod-Integration-Updater")
+		.timeout(Duration::from_secs(30))
 		.send()
 	{
 		Ok(r) => r,
@@ -182,6 +216,12 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	};
 
+	// Check response status
+	if !res.status().is_success() {
+		print_log(&format!("API request failed with status: {}", res.status()));
+		return 1;
+	}
+
 	let release: Release = match res.json() {
 		Ok(r) => r,
 		Err(e) => {
@@ -189,6 +229,12 @@ fn gmod13_open(_lua: State) -> i32 {
 			return 1;
 		}
 	};
+
+	// Validate release data
+	if release.tag_name.is_empty() {
+		print_log("Invalid release: empty tag name");
+		return 1;
+	}
 
 	// Check if addon folder exists and version matches
 	let addon_exists = Path::new("./garrysmod/addons/_gmod_integration_latest").exists();
@@ -208,12 +254,13 @@ fn gmod13_open(_lua: State) -> i32 {
 
 	print_log("Downloading latest version...");
 
-	// Download source code archive from GitHub
+	// Download source code archive from GitHub with timeout
 	let download_url = format!("https://github.com/gmod-integration/gmod-integration/archive/refs/tags/{}.zip", release.tag_name);
 
 	let response = match client
 		.get(&download_url)
 		.header("User-Agent", "Gmod-Integration-Updater")
+		.timeout(Duration::from_secs(120)) // Longer timeout for large files
 		.send()
 	{
 		Ok(r) => r,
@@ -242,9 +289,14 @@ fn gmod13_open(_lua: State) -> i32 {
 		}
 	};
 
-	// Verify we have data
-	if bytes.is_empty() {
-		print_log("Downloaded file is empty");
+	// Verify downloaded content size is reasonable
+	if bytes.len() > 100_000_000 { // 100MB limit
+		print_log("Downloaded file is suspiciously large");
+		return 1;
+	}
+
+	if bytes.len() < 1000 { // Minimum reasonable size
+		print_log("Downloaded file is too small to be valid");
 		return 1;
 	}
 
@@ -293,30 +345,64 @@ fn gmod13_open(_lua: State) -> i32 {
 		return 1;
 	}
 
+	// Clean up on extraction failure
 	for i in 0..archive.len() {
-		let mut file = archive.by_index(i).expect("Bad zip entry");
+		let mut file = match archive.by_index(i) {
+			Ok(f) => f,
+			Err(e) => {
+				print_log(&format!("Failed to read zip entry {}: {}", i, e));
+				let _ = fs::remove_dir_all(&target_dir);
+				let _ = fs::remove_file(&zip_path);
+				return 1;
+			}
+		};
+		
 		let out_path = target_dir.join(file.name());
+
+		// Prevent directory traversal attacks
+		if !out_path.starts_with(&target_dir) {
+			print_log(&format!("Suspicious file path in zip: {}", file.name()));
+			let _ = fs::remove_dir_all(&target_dir);
+			let _ = fs::remove_file(&zip_path);
+			return 1;
+		}
 
 		if file.is_dir() {
 			let _ = fs::create_dir_all(&out_path);
 		} else {
 			if let Some(parent) = out_path.parent() {
-				let _ = fs::create_dir_all(parent);
+				if let Err(e) = fs::create_dir_all(parent) {
+					print_log(&format!("Failed to create directory: {}", e));
+					continue;
+				}
 			}
-			let mut out_file = fs::File::create(&out_path).expect("Failed to create file");
-			let _ = copy(&mut file, &mut out_file);
+			
+			match fs::File::create(&out_path) {
+				Ok(mut out_file) => {
+					if let Err(e) = copy(&mut file, &mut out_file) {
+						print_log(&format!("Failed to extract file {}: {}", out_path.display(), e));
+					}
+				}
+				Err(e) => {
+					print_log(&format!("Failed to create file {}: {}", out_path.display(), e));
+				}
+			}
 		}
 	}
 
 	print_log("Installing update...");
 
+	// Verify extraction was successful
 	let extracted_root = match fs::read_dir(&target_dir)
-		.expect("Failed to read target dir")
-		.next()
+		.map_err(|e| format!("Failed to read target dir: {}", e))
+		.and_then(|mut entries| entries.next().ok_or("No extracted folder found".to_string()))
+		.and_then(|entry| entry.map_err(|e| format!("Failed to read entry: {}", e)))
 	{
-		Some(Ok(entry)) => entry.path(),
-		_ => {
-			print_log("Error: No extracted folder found");
+		Ok(entry) => entry.path(),
+		Err(e) => {
+			print_log(&format!("Error: {}", e));
+			let _ = fs::remove_dir_all(&target_dir);
+			let _ = fs::remove_file(&zip_path);
 			return 1;
 		}
 	};

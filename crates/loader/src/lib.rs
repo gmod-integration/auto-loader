@@ -69,13 +69,31 @@ fn download_asset(client: &Client, asset: &Asset) -> Result<(), Box<dyn std::err
 		.timeout(Duration::from_secs(30))
 		.send()?;
 
+	// Check if response is successful
+	if !resp.status().is_success() {
+		return Err(format!("HTTP error: {}", resp.status()).into());
+	}
+
 	// Create output path and temporary file for safe downloading
 	let mut out_path = PathBuf::from(DEST_DIR);
 	out_path.push(&asset.name);
 
+	// Ensure parent directory exists
+	if let Some(parent) = out_path.parent() {
+		fs::create_dir_all(parent)?;
+	}
+
 	let tmp_path = out_path.with_extension("tmp");
 	let mut file = fs::File::create(&tmp_path)?;
 	copy(&mut resp, &mut file)?;
+	
+	// Verify file was written and has content
+	let metadata = fs::metadata(&tmp_path)?;
+	if metadata.len() == 0 {
+		fs::remove_file(&tmp_path)?;
+		return Err("Downloaded file is empty".into());
+	}
+
 	// Atomically rename temporary file to final destination
 	fs::rename(tmp_path, &out_path)?;
 	
@@ -89,11 +107,28 @@ fn delegate_to_real_loader(lua: State) -> i32 {
 		let suffix = get_platform_suffix();
 		let lib_name = format!("{}/gmsv_gmod_integration_{}.dll", DEST_DIR, suffix);
 
-		let lib = libloading::Library::new(&lib_name)
-			.unwrap_or_else(|_| panic!("Cannot load real integration: {}", lib_name));
+		// Check if file exists before trying to load
+		if !std::path::Path::new(&lib_name).exists() {
+			print_log(&format!("Real integration file not found: {}", lib_name));
+			return 1;
+		}
+
+		let lib = match libloading::Library::new(&lib_name) {
+			Ok(lib) => lib,
+			Err(e) => {
+				print_log(&format!("Failed to load real integration: {}", e));
+				return 1;
+			}
+		};
+
 		// Get the gmod13_open function from the real integration
-		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> =
-			lib.get(b"gmod13_open").expect("symbol not found");
+		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> = match lib.get(b"gmod13_open") {
+			Ok(func) => func,
+			Err(e) => {
+				print_log(&format!("Failed to find gmod13_open symbol: {}", e));
+				return 1;
+			}
+		};
 		
 		print_log("Delegated to real integration");
 		func(lua)
@@ -107,7 +142,7 @@ fn gmod13_open(lua: State) -> i32 {
 	// Ensure destination directory exists
 	if let Err(e) = fs::create_dir_all(DEST_DIR) {
 		print_log(&format!("Failed to create directory: {}", e));
-		return delegate_to_real_loader(lua);
+		return 1; // Don't delegate if we can't even create directories
 	}
 
 	let mut version_cache = load_loader_version_cache();
@@ -122,6 +157,7 @@ fn gmod13_open(lua: State) -> i32 {
 	let release: Release = match client
 		.get(API_LATEST)
 		.header("User-Agent", "Gmod-Auto-Loader")
+		.timeout(Duration::from_secs(30))
 		.send()
 		.and_then(|r| r.error_for_status())
 		.and_then(|r| r.json())
@@ -129,9 +165,24 @@ fn gmod13_open(lua: State) -> i32 {
 		Ok(r) => r,
 		Err(e) => {
 			print_log(&format!("Error fetching release: {}", e));
-			return delegate_to_real_loader(lua);
+			// If file exists, still try to delegate
+			if file_exists {
+				return delegate_to_real_loader(lua);
+			}
+			return 1;
 		}
 	};
+
+	// Validate release data
+	if release.tag_name.is_empty() {
+		print_log("Invalid release: empty tag name");
+		return delegate_to_real_loader(lua);
+	}
+
+	if release.assets.is_empty() {
+		print_log("No assets found in release");
+		return delegate_to_real_loader(lua);
+	}
 
 	// Skip update if version matches and file exists
 	if let Some(current_version) = &version_cache.gmod_integration_loader {
@@ -151,20 +202,34 @@ fn gmod13_open(lua: State) -> i32 {
 
 	// Download the appropriate binary for current platform
 	let target_asset = format!("gmsv_gmod_integration_{}.dll", suffix);
+	let mut found_asset = false;
 	
 	for asset in &release.assets {
 		if asset.name == target_asset {
+			found_asset = true;
 			if let Err(e) = download_asset(&client, asset) {
 				print_log(&format!("Failed to download {}: {}", asset.name, e));
+				// Clean up any partial download
+				let partial_path = PathBuf::from(DEST_DIR).join(&asset.name);
+				let _ = fs::remove_file(partial_path);
 				return delegate_to_real_loader(lua);
 			}
 			break;
 		}
 	}
 
+	if !found_asset {
+		print_log(&format!("No matching asset found for platform: {}", suffix));
+		return delegate_to_real_loader(lua);
+	}
+
 	// Update version cache with new version
 	version_cache.gmod_integration_loader = Some(release.tag_name);
-	save_loader_version_cache(&version_cache);
+	if let Err(e) = serde_json::to_string_pretty(&version_cache)
+		.map_err(|e| e.into())
+		.and_then(|content| fs::write(VERSION_FILE, content).map_err(|e| e.into())) {
+		print_log(&format!("Failed to save version cache: {}", e));
+	}
 
 	print_log("Update completed, delegating to real integration");
 	delegate_to_real_loader(lua)
@@ -177,10 +242,28 @@ fn gmod13_close(lua: State) -> i32 {
 		let suffix = get_platform_suffix();
 		let lib_name = format!("{}/gmsv_gmod_integration_{}.dll", DEST_DIR, suffix);
 
-		let lib = libloading::Library::new(&lib_name)
-			.unwrap_or_else(|_| panic!("Cannot load real integration: {}", lib_name));
-		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> =
-			lib.get(b"gmod13_close").expect("symbol not found");
+		// Check if file exists before trying to load
+		if !std::path::Path::new(&lib_name).exists() {
+			print_log(&format!("Real integration file not found during close: {}", lib_name));
+			return 0; // Don't fail the close operation
+		}
+
+		let lib = match libloading::Library::new(&lib_name) {
+			Ok(lib) => lib,
+			Err(e) => {
+				print_log(&format!("Failed to load real integration during close: {}", e));
+				return 0; // Don't fail the close operation
+			}
+		};
+
+		let func: libloading::Symbol<unsafe extern "C" fn(State) -> i32> = match lib.get(b"gmod13_close") {
+			Ok(func) => func,
+			Err(e) => {
+				print_log(&format!("Failed to find gmod13_close symbol: {}", e));
+				return 0; // Don't fail the close operation
+			}
+		};
+
 		func(lua)
 	}
 }
