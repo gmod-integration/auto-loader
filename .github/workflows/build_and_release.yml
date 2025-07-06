@@ -31,26 +31,37 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
+            - name: Cache Cargo registry
+              uses: actions/cache@v3
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                  key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-cargo-registry-
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v3
 
-            - name: Build Docker image with artifacts
+            - name: Build Docker image & extract artifacts (w/ cache)
+              uses: docker/build-push-action@v4
+              with:
+                  context: .
+                  file: Dockerfile
+                  target: artifacts
+                  outputs: type=local,dest=./release
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+            - name: List extracted DLLs
               run: |
-                  docker build --target artifacts -t build-artifacts .
-
-            - name: Extract DLL files from Docker image
-              run: |
-                  # Create output directory
-                  mkdir -p release
-
-                  # Create a temporary container and copy files
-                  container_id=$(docker create build-artifacts)
-                  docker cp $container_id:/out/. ./release/
-                  docker rm $container_id
-
-                  # List extracted files
-                  echo "Extracted files:"
-                  ls -la release/
+                  echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+                  for dll in release/*.dll; do
+                    [ -f "$dll" ] || continue
+                    size=$(stat -c '%s' "$dll")
+                    echo "- $(basename $dll) — $((size/1024)) KB" >> $GITHUB_STEP_SUMMARY
+                  done
 
             - name: Upload build artifacts
               uses: actions/upload-artifact@v4
@@ -62,59 +73,20 @@ jobs:
             - name: Generate release tag
               id: tag
               run: |
-                  # Generate timestamp-based tag
                   timestamp=$(date +"%Y%m%d-%H%M%S")
-                  commit_short=$(echo ${{ github.sha }} | cut -c1-7)
-                  tag="v${timestamp}-${commit_short}"
-                  echo "tag=${tag}" >> $GITHUB_OUTPUT
-                  echo "Generated tag: ${tag}"
+                  commit_short=${GITHUB_SHA::7}
+                  echo "tag=v${timestamp}-${commit_short}" >> $GITHUB_OUTPUT
 
-            - name: Create Release
-              if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+            - name: Create GitHub Release
+              if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/main')
               uses: softprops/action-gh-release@v1
               with:
                   tag_name: ${{ steps.tag.outputs.tag }}
-                  name: 'Gmod Integration ${{ steps.tag.outputs.tag }}'
+                  name: Gmod Integration ${{ steps.tag.outputs.tag }}
                   body: |
-                      ## Auto-generated release
-
-                      **Commit:** ${{ github.sha }}
-                      **Branch:** ${{ github.ref_name }}
-                      **Timestamp:** ${{ steps.tag.outputs.tag }}
-
-                      ### Included DLLs:
-                      - `gmsv_gmod_integration_linux.dll` - Linux 32-bit
-                      - `gmsv_gmod_integration_linux64.dll` - Linux 64-bit  
-                      - `gmsv_gmod_integration_win32.dll` - Windows 32-bit
-                      - `gmsv_gmod_integration_win64.dll` - Windows 64-bit
-                      - `gmsv_gmod_integration_loader_linux.dll` - Linux 32-bit Loader
-                      - `gmsv_gmod_integration_loader_linux64.dll` - Linux 64-bit Loader
-                      - `gmsv_gmod_integration_loader_win32.dll` - Windows 32-bit Loader  
-                      - `gmsv_gmod_integration_loader_win64.dll` - Windows 64-bit Loader
-
-                      ### Installation:
-                      Download the appropriate DLL files for your platform and place them in `garrysmod/lua/bin/`
+                      Auto-build release from `${{ github.sha }}`
+                      Artifacts:
+                      ${{ steps.build.outputs.artifacts_list }}
                   files: release/*.dll
-                  draft: false
-                  prerelease: false
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Summary
-              run: |
-                  echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
-                  echo "✅ Successfully built all DLL files" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "### Generated Files:" >> $GITHUB_STEP_SUMMARY
-                  for dll in release/*.dll; do
-                    if [ -f "$dll" ]; then
-                      filename=$(basename "$dll")
-                      size=$(ls -lh "$dll" | awk '{print $5}')
-                      echo "- \`$filename\` ($size)" >> $GITHUB_STEP_SUMMARY
-                    fi
-                  done
-
-                  if [ "${{ github.event_name }}" == "push" ] && ([ "${{ github.ref }}" == "refs/heads/main" ] || [ "${{ github.ref }}" == "refs/heads/master" ]); then
-                    echo "" >> $GITHUB_STEP_SUMMARY
-                    echo "🚀 **Release created:** ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
-                  fi
