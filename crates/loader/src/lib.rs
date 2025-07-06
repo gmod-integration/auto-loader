@@ -225,9 +225,11 @@ fn gmod13_open(lua: State) -> i32 {
 
 	// Update version cache with new version
 	version_cache.gmod_integration_loader = Some(release.tag_name);
-	if let Err(e) = serde_json::to_string_pretty(&version_cache)
-		.map_err(|e| e.into())
-		.and_then(|content| fs::write(VERSION_FILE, content).map_err(|e| e.into())) {
+	if let Err(e) = (|| {
+		let content = serde_json::to_string_pretty(&version_cache)?;
+		fs::write(VERSION_FILE, content)?;
+		Ok::<(), Box<dyn std::error::Error>>(())
+	})() {
 		print_log(&format!("Failed to save version cache: {}", e));
 	}
 
