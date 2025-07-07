@@ -1,7 +1,7 @@
-# --- Étape 1 : build sur Debian 11 (glibc 2.31) avec Rust 1.88 ---
+# Build stage with Rust 1.88
 FROM rust:1.88-bullseye AS builder
 
-# Prérequis systèmes pour Linux32/64 et Windows32/64
+# System dependencies for Linux32/64 and Windows32/64 cross-compilation
 RUN dpkg --add-architecture i386 \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -14,11 +14,10 @@ RUN dpkg --add-architecture i386 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-# Prend en compte votre rust-toolchain.toml pour nightly, etc.
+# Take into account your rust-toolchain.toml for nightly, etc.
 COPY rust-toolchain.toml .
 COPY . .
 
-# Build pour chaque target (une instruction RUN par cible pour bénéficier du cache Docker)
 RUN echo "→ build Linux 32-bits" \
  && cargo build --release --target i686-unknown-linux-gnu
 
@@ -31,13 +30,12 @@ RUN echo "→ build Windows 32-bits" \
 RUN echo "→ build Windows 64-bits" \
  && cargo build --release --target x86_64-pc-windows-gnu
 
-# --- Étape 2 : runtime minimal sur Debian 11 slim ---
+# Artifacts extraction stage
 FROM debian:bullseye-slim AS runtime
 
-# (Optionnel) on peut ajouter un dossier de sortie
 RUN mkdir -p /out
 
-# Copie des artefacts compilés
+# Copy compiled artifacts
 # Linux 32-bits
 COPY --from=builder /build/target/i686-unknown-linux-gnu/release/libgmod_integration_loader.so \
                      /out/gmsv_gmod_integration_loader_linux.dll
@@ -62,5 +60,5 @@ COPY --from=builder /build/target/x86_64-pc-windows-gnu/release/gmod_integration
 COPY --from=builder /build/target/x86_64-pc-windows-gnu/release/gmod_integration.dll \
                      /out/gmsv_gmod_integration_win64.dll
 
-# Par défaut, on ne fait rien (inutile d'avoir un CMD réel pour juste extraire les artefacts)
+# By default, do nothing (no need for a real CMD just to extract artifacts)
 CMD ["true"]
