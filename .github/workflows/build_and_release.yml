@@ -36,7 +36,7 @@ jobs:
 
             - name: Build Docker image with artifacts
               run: |
-                  docker build --target artifacts -t build-artifacts .
+                  docker build --target runtime -t build-artifacts .
 
             - name: Extract DLL files from Docker image
               run: |
@@ -91,9 +91,6 @@ jobs:
                       - `gmsv_gmod_integration_loader_linux64.dll` - Linux 64-bit Loader
                       - `gmsv_gmod_integration_loader_win32.dll` - Windows 32-bit Loader  
                       - `gmsv_gmod_integration_loader_win64.dll` - Windows 64-bit Loader
-
-                      ### Installation:
-                      Download the appropriate DLL files for your platform and place them in `garrysmod/lua/bin/`
                   files: release/*.dll
                   draft: false
                   prerelease: false
