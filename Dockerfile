@@ -17,17 +17,17 @@ WORKDIR /build
 COPY rust-toolchain.toml .
 COPY . .
 
-# Compilation du workspace pour chaque target
+# Compilation du workspace pour chaque target - une RUN par plateforme pour un meilleur cache
 RUN echo "→ build Linux 32-bits" \
- && cargo build --release --target i686-unknown-linux-gnu \
- \
- && echo "→ build Linux 64-bits" \
- && cargo build --release --target x86_64-unknown-linux-gnu \
- \
- && echo "→ build Windows 32-bits" \
- && cargo build --release --target i686-pc-windows-gnu \
- \
- && echo "→ build Windows 64-bits" \
+ && cargo build --release --target i686-unknown-linux-gnu
+
+RUN echo "→ build Linux 64-bits" \
+ && cargo build --release --target x86_64-unknown-linux-gnu
+
+RUN echo "→ build Windows 32-bits" \
+ && cargo build --release --target i686-pc-windows-gnu
+
+RUN echo "→ build Windows 64-bits" \
  && cargo build --release --target x86_64-pc-windows-gnu
 
 # --- Étape 2 : extraction des artefacts finaux ---
