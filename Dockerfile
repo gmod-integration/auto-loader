@@ -60,5 +60,5 @@ COPY --from=builder /build/target/x86_64-pc-windows-gnu/release/gmod_integration
 COPY --from=builder /build/target/x86_64-pc-windows-gnu/release/gmod_integration.dll \
                      /out/gmsv_gmod_integration_win64.dll
 
-# By default, do nothing (no need for a real CMD just to extract artifacts)
+# Use to extract artifacts
 CMD ["true"]
