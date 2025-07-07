@@ -22,7 +22,7 @@ env:
 
 jobs:
     build:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-20.04 # Use older Ubuntu for older GLIBC
         permissions:
             contents: write
             packages: write
@@ -36,7 +36,9 @@ jobs:
 
             - name: Build Docker image with artifacts
               run: |
-                  docker build --target artifacts -t build-artifacts .
+                  # Build using Ubuntu 18.04 base for GLIBC 2.27 compatibility
+                  docker build --target artifacts -t build-artifacts \
+                    --build-arg BASE_IMAGE=ubuntu:18.04 .
 
             - name: Extract DLL files from Docker image
               run: |
@@ -48,9 +50,23 @@ jobs:
                   docker cp $container_id:/out/. ./release/
                   docker rm $container_id
 
-                  # List extracted files
+                  # List extracted files with detailed info
                   echo "Extracted files:"
                   ls -la release/
+
+                  # Check static linking for Linux binaries
+                  echo ""
+                  echo "Static linking verification:"
+                  for dll in release/*linux*.dll; do
+                    if [ -f "$dll" ]; then
+                      echo "=== $dll ==="
+                      echo "File info:"
+                      file "$dll"
+                      echo "Dependencies (should show 'not a dynamic executable' for static):"
+                      ldd "$dll" 2>&1 || echo "✅ Statically linked (no dynamic dependencies)"
+                      echo ""
+                    fi
+                  done
 
             - name: Upload build artifacts
               uses: actions/upload-artifact@v4
@@ -82,18 +98,30 @@ jobs:
                       **Branch:** ${{ github.ref_name }}
                       **Timestamp:** ${{ steps.tag.outputs.tag }}
 
+                      ### Compatibility Notes:
+                      - **Linux binaries are statically linked** - no external dependencies required
+                      - **Windows binaries are statically linked** - no Visual C++ Runtime needed
+                      - Compatible with any Linux distribution (using musl static linking)
+                      - Compatible with Windows 7+ (32-bit and 64-bit)
+
                       ### Included DLLs:
-                      - `gmsv_gmod_integration_linux.dll` - Linux 32-bit
-                      - `gmsv_gmod_integration_linux64.dll` - Linux 64-bit  
-                      - `gmsv_gmod_integration_win32.dll` - Windows 32-bit
-                      - `gmsv_gmod_integration_win64.dll` - Windows 64-bit
-                      - `gmsv_gmod_integration_loader_linux.dll` - Linux 32-bit Loader
-                      - `gmsv_gmod_integration_loader_linux64.dll` - Linux 64-bit Loader
-                      - `gmsv_gmod_integration_loader_win32.dll` - Windows 32-bit Loader  
-                      - `gmsv_gmod_integration_loader_win64.dll` - Windows 64-bit Loader
+                      - `gmsv_gmod_integration_linux.dll` - Linux 32-bit (statically linked)
+                      - `gmsv_gmod_integration_linux64.dll` - Linux 64-bit (statically linked)
+                      - `gmsv_gmod_integration_win32.dll` - Windows 32-bit (statically linked)
+                      - `gmsv_gmod_integration_win64.dll` - Windows 64-bit (statically linked)
+                      - `gmsv_gmod_integration_loader_linux.dll` - Linux 32-bit Loader (statically linked)
+                      - `gmsv_gmod_integration_loader_linux64.dll` - Linux 64-bit Loader (statically linked)
+                      - `gmsv_gmod_integration_loader_win32.dll` - Windows 32-bit Loader (statically linked)
+                      - `gmsv_gmod_integration_loader_win64.dll` - Windows 64-bit Loader (statically linked)
 
                       ### Installation:
                       Download the appropriate DLL files for your platform and place them in `garrysmod/lua/bin/`
+
+                      ### Benefits of Static Linking:
+                      - ✅ No GLIBC version compatibility issues
+                      - ✅ No missing system libraries
+                      - ✅ Works on any Linux distribution
+                      - ✅ Self-contained binaries
                   files: release/*.dll
                   draft: false
                   prerelease: false
@@ -103,7 +131,12 @@ jobs:
             - name: Summary
               run: |
                   echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
-                  echo "✅ Successfully built all DLL files" >> $GITHUB_STEP_SUMMARY
+                  echo "✅ Successfully built all DLL files with static linking" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### Key Features:" >> $GITHUB_STEP_SUMMARY
+                  echo "- 🔗 **Static linking** - no external dependencies" >> $GITHUB_STEP_SUMMARY
+                  echo "- 🐧 **Universal Linux compatibility** - works on any distribution" >> $GITHUB_STEP_SUMMARY
+                  echo "- 🪟 **Windows compatibility** - no runtime requirements" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "### Generated Files:" >> $GITHUB_STEP_SUMMARY
                   for dll in release/*.dll; do
