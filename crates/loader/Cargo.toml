@@ -12,5 +12,19 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 zip = "0.5"
 libloading = "0.7"
-reqwest = { version = "0.11",default-features = false,features = ["blocking","json","rustls-tls"] }
-chrono = { version = "0.4", features = ["alloc", "std"] }
+
+# Use static linking for reqwest
+reqwest = {     version = "0.11",    default-features = false,    features = [        "blocking",        "json",         "rustls-tls",        "rustls-tls-native-roots"    ]}
+
+chrono = {     version = "0.4",     default-features = false,    features = ["alloc", "std", "clock"]}
+[target.'cfg(target_env = "musl")'.dependencies]
+# Additional static linking for musl
+openssl = { version = "0.10", features = ["vendored"] }
+
+[profile.release]
+# Optimize for size and static linking
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
